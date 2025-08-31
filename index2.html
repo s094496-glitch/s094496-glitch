@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS數量預測系統</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2 {
+            text-align: center;
+            color: #005a9c;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 25px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #fafafa;
+        }
+        .control-item {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 150px;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        input[type="date"], input[type="number"], input[type="text"], button {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .calendar {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            text-align: center;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .calendar-header {
+            background-color: #e0e0e0;
+            font-weight: bold;
+            padding: 10px;
+            grid-column: span 7;
+        }
+        .day-name {
+            background-color: #f0f0f0;
+            padding: 8px 0;
+            font-weight: bold;
+        }
+        .calendar-cell {
+            min-height: 80px;
+            padding: 10px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+            position: relative;
+        }
+        .calendar-cell.today {
+            border: 2px solid #007bff;
+            background-color: #eaf6ff;
+        }
+        .date-number {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #555;
+            position: absolute;
+            top: 5px;
+            left: 5px;
+        }
+        .available-count {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #28a745;
+            margin-top: 25px;
+        }
+        .available-count.low {
+            color: #dc3545; /* Red color for low stock */
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            border-radius: 4px;
+            display: none; /* Hide by default */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>POS數量預測系統</h1>
+        <p>這是一個簡單的工具，可以幫助您預測每天可用的電腦數量。</p>
+
+        <div class="controls">
+            <div class="control-item">
+                <label for="total-pcs">總POS數量：</label>
+                <input type="number" id="total-pcs" value="357" min="1" step="1">
+            </div>
+            <div class="control-item">
+                <label for="counter-name">櫃號或特賣會名稱：</label>
+                <input type="text" id="counter-name">
+            </div>
+            <div class="control-item">
+                <label for="start-date">起始日期：</label>
+                <input type="date" id="start-date">
+            </div>
+            <div class="control-item">
+                <label for="end-date">結束日期：</label>
+                <input type="date" id="end-date">
+            </div>
+            <div class="control-item">
+                <label for="used-count">使用數量：</label>
+                <input type="number" id="used-count" value="1" min="1" step="1">
+            </div>
+            <div class="control-item">
+                <button onclick="addEntry()">新增使用紀錄</button>
+            </div>
+        </div>
+
+        <div class="message" id="message-box"></div>
+
+        <div class="calendar-nav" style="text-align: center; margin-bottom: 10px;">
+            <button onclick="changeMonth(-1)">上一月</button>
+            <span id="current-month-year" style="font-size: 1.5em; font-weight: bold;"></span>
+            <button onclick="changeMonth(1)">下一月</button>
+        </div>
+
+        <div class="calendar" id="calendar-container">
+        </div>
+
+        <div style="margin-top: 25px;">
+            <h2>所有使用紀錄</h2>
+            <p>點擊 "移除" 可取消該筆紀錄，釋出電腦數量。</p>
+            <ul id="entries-list" style="list-style-type: none; padding: 0;"></ul>
+        </div>
+    </div>
+
+    <script>
+        // 總電腦數量
+        let totalPCs = 357;
+        let usageEntries = [];
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+
+        // 這裡請替換成你部署好的 Google Apps Script URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydv_k2XZld503h9HIwjDhb2NXG7PhP5CPgvkLeUix5g31WnI4UJjCBkz2bixhtMGJs/exec';
+
+        // 載入 Apps Script 和 localStorage 中的資料
+        window.onload = async function() {
+            const storedTotal = localStorage.getItem('totalPCs');
+            if (storedTotal) {
+                totalPCs = parseInt(storedTotal);
+                document.getElementById('total-pcs').value = totalPCs;
+            }
+
+            await fetchEntriesFromSheet();
+            updateView();
+        };
+
+        // 從 Google Apps Script 獲取資料
+        async function fetchEntriesFromSheet() {
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=get');
+                if (!response.ok) {
+                    throw new Error('網路回應不正常');
+                }
+                const dataFromSheet = await response.json();
+                
+                // 檢查是否是有效的陣列
+                if (Array.isArray(dataFromSheet)) {
+                    usageEntries = dataFromSheet;
+                    // 將資料儲存到 localStorage 作為備份
+                    localStorage.setItem('usageEntries', JSON.stringify(usageEntries));
+                } else {
+                    throw new Error('從試算表獲取的資料格式不正確');
+                }
+            } catch (error) {
+                console.error('從 Google Sheets 讀取資料時發生錯誤:', error);
+                // 如果讀取失敗，就只使用 localStorage 的舊資料
+                usageEntries = JSON.parse(localStorage.getItem('usageEntries')) || [];
+                showMessage('警告：無法從雲端載入資料，正在使用本地備份。', 'warning');
+            }
+        }
+
+        // 儲存資料到 localStorage
+        function saveToLocalStorage() {
+            localStorage.setItem('totalPCs', totalPCs);
+            localStorage.setItem('usageEntries', JSON.stringify(usageEntries));
+        }
+
+        // 顯示訊息
+        function showMessage(msg, type = 'warning') {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = msg;
+            msgBox.style.display = 'block';
+            msgBox.style.backgroundColor = type === 'warning' ? '#fff3cd' : '#d4edda';
+            msgBox.style.borderColor = type === 'warning' ? '#ffeeba' : '#c3e6cb';
+            msgBox.style.color = type === 'warning' ? '#856404' : '#155724';
+            setTimeout(() => {
+                msgBox.style.display = 'none';
+            }, 3000);
+        }
+
+        // 新增使用紀錄
+        async function addEntry() {
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+            const usedCount = parseInt(document.getElementById('used-count').value);
+            const counterName = document.getElementById('counter-name').value;
+
+            totalPCs = parseInt(document.getElementById('total-pcs').value);
+
+            if (!startDate || !endDate || isNaN(usedCount) || usedCount <= 0 || !counterName) {
+                showMessage('請輸入有效的日期、數量及名稱！', 'warning');
+                return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+                showMessage('起始日期不能晚於結束日期！', 'warning');
+                return;
+            }
+            
+            const newEntry = {
+                counterName: document.getElementById('counter-name').value,
+                startDate: document.getElementById('start-date').value,
+				endDate: document.getElementById('end-date').value,
+				count: parseInt(document.getElementById('used-count').value)
+            };
+            
+            // 將新紀錄提交到 Google Apps Script
+            try {
+				const response = await fetch(SCRIPT_URL, {
+					ethod: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify(newEntry)
+				});
+
+				if (!response.ok) {
+					throw new Error('網路回應不正常');
+				}
+
+				const result = await response.json();
+				if (result.status === 'success') {
+					console.log('資料成功寫入 Google 試算表！');
+					alert('新增成功！請檢查你的 Google 試算表。');
+				} else {
+					throw new Error(result.message || '寫入資料失敗');
+				}
+
+			} catch (error) {
+				console.error('寫入 Google Sheets 發生錯誤:', error);
+				alert('寫入雲端失敗，請檢查瀏覽器控制台。');
+			}
+		}
+
+        // 移除使用紀錄
+        async function removeEntry(id) {
+            // 將移除請求提交到 Google Apps Script
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=remove', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ id: id })
+                });
+
+                if (!response.ok) {
+                    throw new Error('網路回應不正常');
+                }
+
+                const result = await response.json();
+                if (result.status === 'success') {
+                    // 如果移除成功，重新從試算表載入資料
+                    showMessage('紀錄已移除！資料已同步至雲端。', 'success');
+                    await fetchEntriesFromSheet();
+                    updateView();
+                } else {
+                    throw new Error(result.message || '移除資料失敗');
+                }
+
+            } catch (error) {
+                console.error('移除 Google Sheets 發生錯誤:', error);
+                showMessage('移除雲端資料失敗，請稍後重試。', 'warning');
+            }
+        }
+
+        // 計算每天的使用數量
+        function calculateDailyUsage() {
+            const usageMap = {};
+            usageEntries.forEach(entry => {
+                const start = new Date(entry.startDate);
+                const end = new Date(entry.endDate);
+                
+                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                    const dateStr = d.toISOString().split('T')[0];
+                    if (usageMap[dateStr]) {
+                        usageMap[dateStr] += entry.count;
+                    } else {
+                        usageMap[dateStr] = entry.count;
+                    }
+                }
+            });
+            return usageMap;
+        }
+
+        // 更新日曆和列表視圖
+        function updateView() {
+            const usageMap = calculateDailyUsage();
+            generateCalendar(usageMap);
+            displayEntries();
+            saveToLocalStorage();
+        }
+
+        // 生成日曆
+        function generateCalendar(usageMap) {
+            const calendarContainer = document.getElementById('calendar-container');
+            calendarContainer.innerHTML = '';
+            
+            // 標題
+            document.getElementById('current-month-year').textContent = `${currentYear} 年 ${currentMonth + 1} 月`;
+            
+            const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+            dayNames.forEach(day => {
+                const dayNameDiv = document.createElement('div');
+                dayNameDiv.className = 'day-name';
+                dayNameDiv.textContent = day;
+                calendarContainer.appendChild(dayNameDiv);
+            });
+            
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const startingDay = firstDayOfMonth.getDay();
+            
+            // 補齊前一個月的空白
+            for (let i = 0; i < startingDay; i++) {
+                calendarContainer.appendChild(document.createElement('div'));
+            }
+            
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            
+            for (let i = 1; i <= daysInMonth; i++) {
+                const date = new Date(currentYear, currentMonth, i);
+                const dateStr = date.toISOString().split('T')[0];
+                const usedCount = usageMap[dateStr] || 0;
+                const availableCount = totalPCs - usedCount;
+
+                const cell = document.createElement('div');
+                cell.className = 'calendar-cell';
+                if (dateStr === todayStr) {
+                    cell.classList.add('today');
+                }
+
+                const dateNumber = document.createElement('div');
+                dateNumber.className = 'date-number';
+                dateNumber.textContent = i;
+                cell.appendChild(dateNumber);
+
+                const availableDiv = document.createElement('div');
+                availableDiv.className = 'available-count';
+                availableDiv.textContent = availableCount;
+                if (availableCount < 5) { // 預警門檻
+                    availableDiv.classList.add('low');
+                }
+                cell.appendChild(availableDiv);
+
+                calendarContainer.appendChild(cell);
+            }
+        }
+        
+        // 切換月份
+        function changeMonth(direction) {
+            currentMonth += direction;
+            if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            } else if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+            updateView();
+        }
+
+        // 顯示紀錄清單
+        function displayEntries() {
+            const list = document.getElementById('entries-list');
+            list.innerHTML = '';
+            
+            // 依據起始日期排序
+            usageEntries.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+            
+            usageEntries.forEach(entry => {
+                const li = document.createElement('li');
+                li.style.marginBottom = '10px';
+                li.innerHTML = `
+                    **${entry.counterName}** - **${entry.startDate} ~ ${entry.endDate}**: 使用 **${entry.count}** 台
+                    <button onclick="removeEntry('${entry.id}')" style="margin-left: 15px; background-color: #dc3545; color: white;">移除</button>
+                `;
+                list.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>
